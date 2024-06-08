@@ -25,7 +25,7 @@ This project evaluates the importance and urgency of emails by using machine lea
 - Dotenv
 - Schedule
 
-## Here is the file structure for the project:
+## File Structure
 
 ```plaintext
 smarttasks/
