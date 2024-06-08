@@ -69,9 +69,6 @@ This project extracts tasks from emails and evaluates their urgency by using mac
 5. Click <strong>Project Settings</strong>.
 6. Select the <strong>Show "appsscript.json" manifest file in editor</strong> checkbox.
 7. Replace the files with the appscript-frontend files.
-8. Click <strong>Deploy > Test deployments</strong>.
-9. Click <strong>Install</strong>.
-10. At the bottom, click <strong>Done</strong>.
 
 ### Backend
 1. Clone the repository:
@@ -110,6 +107,15 @@ This project extracts tasks from emails and evaluates their urgency by using mac
 
 ## Usage
 
+### Frontend
+1. Open the script project in the Apps Script editor.
+2. Click <strong>Deploy > Test deployments</strong>.
+3. Click <strong>Install</strong>.
+4. At the bottom, click <strong>Done</strong>.
+
+The add-on should be immediately available in Gmail for the account used.
+
+### Backend
 1. Run the main script to start processing documents and monitoring changes:
 
    ```bash
