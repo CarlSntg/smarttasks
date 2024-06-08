@@ -14,7 +14,7 @@ This project extracts tasks from emails and evaluates their urgency by using Nat
 
 ## Prerequisites
 
-- A Google Apps Script project
+- A [Google Apps Script](https://script.google.com) project
 - Python 3.8 or higher
 - MongoDB
 - [spaCy](https://spacy.io/) and the `en_core_web_trf` model
