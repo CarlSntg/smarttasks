@@ -5,9 +5,9 @@ This project evaluates the importance and urgency of emails by using machine lea
 
 ## Features
 
+- **Email Task and Urgency Evaluation**: Evaluates the content of emails to determine tasks and their urgency levels.
 - **Continuous Document Processing**: Regularly checks for and processes unprocessed documents in MongoDB collections.
 - **Real-Time Change Monitoring**: Monitors collections for real-time changes and processes documents immediately upon detection.
-- **Email Task and Urgency Evaluation**: Evaluates the content of emails to determine tasks and their urgency levels.
 - **Email Notifications**: Sends daily emails listing urgent tasks to users.
 - **Scheduled Reprocessing**: Reprocesses urgencies of uncompleted tasks based on their deadlines.
 
