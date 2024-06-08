@@ -1,4 +1,4 @@
-# smarttasks
+# SmartTasks
 AI-integrated Gmail Assistant Add-on: Task Extraction and Classification via Natural Language Processing Techniques and Naive Bayes Algorithm
 
 This project evaluates the importance and urgency of emails by using machine learning models. It processes emails, identifies tasks, and categorizes them based on urgency levels. The system uses MongoDB for storing email data and spaCy for natural language processing.
