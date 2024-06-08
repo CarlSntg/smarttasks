@@ -65,7 +65,7 @@ This project extracts tasks from emails and evaluates their urgency by using mac
 
    ```bash
    git clone [https://github.com/CarlSntg/smarttasks.git]
-   cd smarttasks
+   cd smarttasks\python-backend
    ```
 
 2. Install the required Python packages:
