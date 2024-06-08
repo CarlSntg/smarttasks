@@ -61,6 +61,19 @@ This project extracts tasks from emails and evaluates their urgency by using mac
 
 ## Installation
 
+### Frontend
+1. Go to[Google Apps Script](script.google.com).
+2. Click <strong>add New Project</strong>.
+3. In the script editor, click <strong>Untitled project</strong>.
+4. Give your project a name and click <strong>Rename</strong>.
+5. Click <strong>Project Settings</strong>.
+6. Select the <strong>Show "appsscript.json" manifest file in editor</strong> checkbox.
+7. Replace the files with the appscript-frontend files.
+8. Click <strong>Deploy > Test deployments</strong>.
+9. Click <strong>Install</strong>.
+10. At the bottom, click <strong>Done</strong>.
+
+### Backend
 1. Clone the repository:
 
    ```bash
