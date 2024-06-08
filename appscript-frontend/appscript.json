@@ -1,0 +1,41 @@
+{
+  "timeZone": "Asia/Manila",
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/gmail.addons.execute",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/script.locale",
+    "https://www.googleapis.com/auth/script.external_request"
+  ],
+  "addOns": {
+    "common": {
+      "name": "SmartTasks",
+      "logoUrl": "https://iili.io/JMRW6ua.png",
+      "useLocaleFromApp": true,
+      "universalActions": [
+        {}
+      ]
+    },
+    "gmail": {
+      "primaryColor": "#264653",
+      "secondaryColor": "#FAF0CA",
+      "contextualTriggers": [
+        {
+          "unconditional": {},
+          "onTriggerFunction": "onGmailMessage"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Gmail",
+        "version": "v1",
+        "serviceId": "gmail"
+      }
+    ]
+  }
+}
