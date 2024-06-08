@@ -13,6 +13,7 @@ This project extracts tasks from emails and evaluates their urgency by using mac
 
 ## Prerequisites
 
+- A Google Apps Script project
 - Python 3.8 or higher
 - MongoDB
 - [spaCy](https://spacy.io/) and the `en_core_web_trf` model
@@ -25,19 +26,23 @@ This project extracts tasks from emails and evaluates their urgency by using mac
 - Dotenv
 - Schedule
 
-## File Structure
+## File Tree Structure 
 
 ```plaintext
-smarttasks/
-├── models/
-│   ├── model_task.pkl
-│   ├── vectorizer_task.pkl
-│   ├── model_urgency.pkl
-│   ├── vectorizer_urgency.pkl
-├── main.py
-├── train_models.py
-├── requirements.txt
-├── .env
+.
+├── python-backend/
+│   ├── models/
+│   │   ├── model_task.pkl
+│   │   ├── vectorizer_task.pkl
+│   │   ├── model_urgency.pkl
+│   │   ├── vectorizer_urgency.pkl
+│   ├── main.py
+│   ├── train_models.py
+│   ├── requirements.txt
+│   ├── .env
+├── appscript-frontend/
+│   ├── appsscript.json
+│   ├── index.js
 ├── README.md
 ```
 
@@ -51,14 +56,16 @@ smarttasks/
 - `vectorizer_task.pkl`: Vectorizer for task detection model.
 - `model_urgency.pkl`: Model for detecting urgency.
 - `vectorizer_urgency.pkl`: Vectorizer for urgency detection model.
+- `appsscript.json`: Configuration file for the Google Apps Script project.
+- `index.js`: Google Apps Script code file for the frontend.
 
 ## Installation
 
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/your-username/email-task-urgency-evaluator.git
-   cd email-task-urgency-evaluator
+   git clone [https://github.com/CarlSntg/smarttasks.git]
+   cd smarttasks
    ```
 
 2. Install the required Python packages:
