@@ -10,6 +10,7 @@ This project extracts tasks from emails and evaluates their urgency by using Nat
 - **Real-Time Change Monitoring**: Monitors collections for real-time changes and processes documents immediately upon detection.
 - **Email Notifications**: Sends daily emails listing urgent tasks to users.
 - **Scheduled Reprocessing**: Reprocesses urgencies of uncompleted tasks based on their deadlines.
+- **CRUD Operations**: Gmail add-on frontend enable users to create, read, update, and delete tasks extracted and uploaded from the backend.
 
 ## Prerequisites
 
