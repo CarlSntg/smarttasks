@@ -71,9 +71,32 @@ This project evaluates the importance and urgency of emails by using machine lea
 
 2. The script will continuously process documents and monitor changes, sending daily emails with urgent tasks and reprocessing urgencies as scheduled.
 
+
+Here is the file structure for the project:
+
+```plaintext
+smarttasks/
+├── models/
+│   ├── model_task.pkl
+│   ├── vectorizer_task.pkl
+│   ├── model_urgency.pkl
+│   ├── vectorizer_urgency.pkl
+├── main.py
+├── train_models.py
+├── requirements.txt
+├── .env.example
+├── README.md
+├── LICENSE
+├── CONTRIBUTING.md
+```
+
 ## File Descriptions
 
 - `main.py`: The main script that handles document processing, change monitoring, and scheduling tasks.
 - `train_models.py`: Script for training the task and urgency models.
 - `requirements.txt`: List of required Python packages.
 - `.env`: Environment variables for MongoDB connection and email configuration (not included in the repository).
+- `model_task.pkl`: Model for detecting tasks.
+- `vectorizer_task.pkl`: Vectorizer for task detection model.
+- `model_urgency.pkl`: Model for detecting urgency.
+- `vectorizer_urgency.pkl`: Vectorizer for urgency detection model.
