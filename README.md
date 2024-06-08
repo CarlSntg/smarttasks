@@ -37,10 +37,8 @@ smarttasks/
 ├── main.py
 ├── train_models.py
 ├── requirements.txt
-├── .env.example
+├── .env
 ├── README.md
-├── LICENSE
-├── CONTRIBUTING.md
 ```
 
 ## File Descriptions
