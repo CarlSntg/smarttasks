@@ -45,10 +45,9 @@ const iconNotUrgent = CardService.newIconImage()
     )
     .setAltText('Not Urgent');
 
+
 function onGmailMessage(e) {
   console.log(e);
-
-  fetchAndStoreEmails(e);
 
   return fetchAndDisplayTasks(e);
 }
@@ -58,19 +57,20 @@ function fetchAndStoreEmails(e) {
   const apikey = getAPIKey();
   const excludedEmail = "smarttasks.lmdify@gmail.com";
   
-  let timeZone = e.commonEventObject.timeZone.id;
-  const sevenDaysInMs = 604800000;
+  // let timeZone = e.commonEventObject.timeZone.id;
+  let timeZone = Session.getScriptTimeZone();
+  const daysInMs = 86400000 * 14;
   const now = new Date();
-  const sevenDaysAgo = new Date(now.getTime() - sevenDaysInMs);
-  const dateQuery = Utilities.formatDate(sevenDaysAgo, timeZone, "yyyy/MM/dd");
+  const daysAgo = new Date(now.getTime() - daysInMs);
+  const dateQuery = Utilities.formatDate(daysAgo, timeZone, "yyyy/MM/dd");
 
-  var threads = GmailApp.search("in:inbox after:" + dateQuery, 0, 10); // Get 10 most recent threads within 7 days from current time
+  var threads = GmailApp.search("in:inbox category:primary after:" + dateQuery, 0, 50); // Get 50 most recent threads within 14 days from current time
 
   threads.forEach(thread => {
     const messages = thread.getMessages();
     const mostRecentMessage = messages[messages.length - 1]; // Get the last message in the thread
 
-    if (mostRecentMessage.getFrom() !== excludedEmail) { // Exclude emails from the specified address
+    if (mostRecentMessage.getFrom() !== excludedEmail) { 
       const emailData = {
         subject: mostRecentMessage.getSubject(),
         sender: mostRecentMessage.getFrom(),
@@ -156,7 +156,8 @@ function fetchAndDisplayTasks(e, filter = "All") {
 
 
 function buildHomeCard(documents = [], e) {
-
+  
+    const apikey = getAPIKey();
     let completedTasks = [];
     let uncompletedTasks = [];
     let urgency = "";
@@ -171,6 +172,48 @@ function buildHomeCard(documents = [], e) {
         }
     });
 
+    const payload = {
+    filter: { emailId: 'trigger' },
+    collection: collectionName,
+    database: databaseName,
+    dataSource: clusterName
+    };
+
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      headers: { "api-key": apikey }
+    };
+
+    const response = UrlFetchApp.fetch(findEndpoint, options);
+    const triggered = JSON.parse(response.getContentText()).documents[0]?.triggered || false;
+
+    let notificationSection;
+    if (!triggered) {
+      notificationSection = CardService.newCardSection()
+          .addWidget(CardService.newTextParagraph().setText('Welcome to <b><font color=\"#264653\">SmartTasks!</font></b>\n\nCreating a trigger is essential for the functionalities of this add-on, please click the <b>Run Trigger</b> button down at the bottom to get started.'));
+    }
+
+    let triggerButton;
+    if (triggered) {
+      const deleteTriggerButtonAction = CardService.newAction()
+          .setFunctionName('showDeleteTriggerConfirmation')
+          .setParameters({ "event": JSON.stringify(e) });
+
+      triggerButton = CardService.newTextButton()
+          .setText('Delete Trigger')
+          .setOnClickAction(deleteTriggerButtonAction);
+    } else {
+      const createTriggerButtonAction = CardService.newAction()
+          .setFunctionName('showCreateTriggerConfirmation')
+          .setParameters({ "event": JSON.stringify(e) });
+
+      triggerButton = CardService.newTextButton()
+          .setText('Run Trigger')
+          .setOnClickAction(createTriggerButtonAction);
+    }
+
     let refreshButtonAction = CardService.newAction()
         .setFunctionName('refreshCard')
         .setParameters({ "event": JSON.stringify(e) });
@@ -180,7 +223,8 @@ function buildHomeCard(documents = [], e) {
         .setOnClickAction(refreshButtonAction);
 
     let refreshFooter = CardService.newFixedFooter()
-        .setPrimaryButton(refreshButton);
+        .setPrimaryButton(refreshButton)
+        .setSecondaryButton(triggerButton);
 
     let cardSection1 = CardService.newCardSection()
         .setHeader('Task from this Email');
@@ -191,6 +235,7 @@ function buildHomeCard(documents = [], e) {
         cardSection1.addWidget(
             CardService.newTextParagraph().setText("No task found in this email.")
           );
+
     } else {
         urgency = currentEmailTask.urgency || "Unknown Urgency";
         task = currentEmailTask.task || "No Subject";
@@ -393,17 +438,30 @@ function buildHomeCard(documents = [], e) {
         });
       }
 
-    let card = CardService.newCardBuilder()
+    let card;
+    if (notificationSection) {
+      card = CardService.newCardBuilder()
+        .setName('homeCard')
+        .setFixedFooter(refreshFooter)
+        .addSection(notificationSection)
+        .addSection(cardSection1)
+        .addSection(buttonListSection)
+        .addSection(cardSection3)
+        .addSection(cardSection4)
+        .build();
+    } else {
+      card = CardService.newCardBuilder()
+        .setName('homeCard')
         .setFixedFooter(refreshFooter)
         .addSection(cardSection1)
         .addSection(buttonListSection)
         .addSection(cardSection3)
         .addSection(cardSection4)
         .build();
+    }
 
     return card;
 }
-
 
 
 function buildDetailsCard(e) {
@@ -517,7 +575,6 @@ function buildDetailsCard(e) {
     return card;
     
 }
-
 
 
 function toggleTaskComplete(e) {
@@ -918,36 +975,51 @@ function deleteTaskCard(e) {
 }
 
 
-
 function deleteTask(e) {
-  const taskToDelete = e.parameters.emailId;
+  const taskToUpdate = e.parameters.emailId;
   const event = JSON.parse(e.parameters.event);
   const apikey = getAPIKey();
 
-  const deletePayload = {
-    filter: { emailId: taskToDelete },
+  const updatePayload = {
+    filter: { emailId: taskToUpdate },
+    update: {
+      $unset: {
+        subject: "",
+        sender: "",
+        body: "",
+        createdat: "",
+        task: "",
+        taskbody: "",
+        deadline: "",
+        urgency: "",
+        completed: "",
+      },
+      $set: {
+        hastask: false,
+        processed: true
+      }
+    },
     collection: collectionName,
     database: databaseName,
     dataSource: clusterName
   };
 
-  const deleteOptions = {
+  const updateOptions = {
     method: 'post',
     contentType: 'application/json',
-    payload: JSON.stringify(deletePayload),
+    payload: JSON.stringify(updatePayload),
     headers: { "api-key": apikey }
   };
 
   try {
-    UrlFetchApp.fetch(deleteEndpoint, deleteOptions);
-    console.log("Task deleted from database");
+    UrlFetchApp.fetch(updateOneEndpoint, updateOptions);
+    console.log("Task updated to remove fields and set hastask to false");
   } catch (error) {
-    console.error("Error deleting task: ", error);
+    console.error("Error updating task: ", error);
   }
 
   return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event));
 }
-
 
 
 function fetchCurrentEmailTask(e) {
@@ -1026,4 +1098,195 @@ function refreshCard(e) {
   const event = JSON.parse(e.parameters.event);
 
   return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event));
+}
+
+function gotoPreviousCard() {
+    var nav = CardService.newNavigation().popCard();
+    return CardService.newActionResponseBuilder()
+        .setNavigation(nav)
+        .build();
+}
+
+
+function showCreateTriggerConfirmation(e) {
+  const event = JSON.parse(e.parameters.event);
+
+  const createTriggerButtonAction = CardService.newAction()
+      .setFunctionName('createTrigger')
+      .setParameters({ "event": JSON.stringify(event) });
+
+  const createTriggerButton = CardService.newTextButton()
+      .setText('Create Trigger')
+      .setOnClickAction(createTriggerButtonAction);
+
+  const cancelButtonAction = CardService.newAction()
+      .setFunctionName('gotoPreviousCard');
+
+  const cancelButton = CardService.newTextButton()
+      .setText('Cancel')
+      .setOnClickAction(cancelButtonAction);
+
+  const cardFooter = CardService.newFixedFooter()
+      .setPrimaryButton(createTriggerButton)
+      .setSecondaryButton(cancelButton);
+
+  let createTriggerIcon = CardService.newIconImage()
+        .setIconUrl('https://iili.io/Jp4NJBn.png')
+        .setAltText('Create Trigger');
+
+  let createTrigger = CardService.newDecoratedText()
+        .setText('Create Trigger')
+        .setStartIcon(createTriggerIcon);
+
+  let cardSection1 = CardService.newCardSection()
+        .addWidget(createTrigger);
+
+  let askConfirmation = CardService.newTextParagraph()
+        .setText('This will initiate the upload and processing of your emails for task extraction. This is <b>necessary</b> for the functionality of the addon and runs at intervals. Create the trigger?\n\nPlease review our <a href=\"https://docs.google.com/document/d/e/2PACX-1vThgejgFkRr-Gfg-PdAPksWeNRPVhxWinEgd6LqzeEipsp_MB8sQIGy7SYhWZTqWVdyPi-PwBWoJh4O/pub\">Terms of Service</a> and <a href=\"https://docs.google.com/document/d/e/2PACX-1vRkCmVUi7_n5VBV3PDtDQcZPkb-1Tmu04DDGEmME5_xpk5fFWKOeZcEsQbn9yOaGGtIv6Nt-kPT2iEX/pub\">Privacy Policy</a> before proceeding.\n\n<b>Please note:</b>\nRunning this trigger might take up to a minute to finish. You only need to do this once.');
+
+  let cardSection2 = CardService.newCardSection()
+        .addWidget(askConfirmation);
+
+  let card = CardService.newCardBuilder()
+        .setFixedFooter(cardFooter)
+        .addSection(cardSection1)
+        .addSection(cardSection2)
+        .build();
+
+  return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().pushCard(card))
+      .build();
+}
+
+function showDeleteTriggerConfirmation(e) {
+  const event = JSON.parse(e.parameters.event);
+
+  const deleteTriggerButtonAction = CardService.newAction()
+      .setFunctionName('deleteTrigger')
+      .setParameters({ "event": JSON.stringify(event) });
+
+  const deleteTriggerButton = CardService.newTextButton()
+      .setText('Delete Trigger')
+      .setOnClickAction(deleteTriggerButtonAction);
+
+  const cancelButtonAction = CardService.newAction()
+      .setFunctionName('gotoPreviousCard');
+
+  const cancelButton = CardService.newTextButton()
+      .setText('Cancel')
+      .setOnClickAction(cancelButtonAction);
+
+  const cardFooter = CardService.newFixedFooter()
+      .setPrimaryButton(deleteTriggerButton)
+      .setSecondaryButton(cancelButton);
+
+  let deleteTriggerIcon = CardService.newIconImage()
+        .setIconUrl('https://iili.io/Jp4N7pV.png')
+        .setAltText('Delete Trigger');
+
+  let deleteTrigger = CardService.newDecoratedText()
+        .setText('Delete Trigger')
+        .setStartIcon(deleteTriggerIcon);
+
+  let cardSection1 = CardService.newCardSection()
+        .addWidget(deleteTrigger);
+
+  let askConfirmation = CardService.newTextParagraph()
+        .setText('This will <b><font color=\"#FF0000\">stop</font></b> the upload and processing of your emails for task extraction, which is necesary for the functionality of the addon. Delete the trigger?');
+
+  let cardSection2 = CardService.newCardSection()
+        .addWidget(askConfirmation);
+
+  let card = CardService.newCardBuilder()
+        .setFixedFooter(cardFooter)
+        .addSection(cardSection1)
+        .addSection(cardSection2)
+        .build();
+
+  return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().pushCard(card))
+      .build();
+}
+
+function createTrigger(e) {
+  const apikey = getAPIKey();
+  const collection = collectionName;
+
+  fetchAndStoreEmails();
+
+  const payload = {
+    filter: { emailId: 'trigger' },
+    update: { 
+      $set: { 
+        triggered: true,
+        hastask: false,
+        processed: true
+      }
+    },
+    upsert: true,  // This will create the document if it does not exist
+    collection: collection,
+    database: databaseName,
+    dataSource: clusterName
+  };
+
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    headers: { "api-key": apikey }
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(updateOneEndpoint, options);
+    ScriptApp.newTrigger('fetchAndStoreEmails')
+             .timeBased()
+             .everyHours(1)
+             .create();
+    console.log("Trigger created successfully");
+  } catch (error) {
+    Logger.log("Error creating trigger: " + error);
+  }
+
+  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(e));
+}
+
+function deleteTrigger(e) {
+  const apikey = getAPIKey();
+  const collection = collectionName;
+
+  const payload = {
+    filter: { emailId: 'trigger' },
+    update: { 
+      $set: { 
+        triggered: false,
+        hastask: false,
+        processed: true
+      }
+    },
+    collection: collection,
+    database: databaseName,
+    dataSource: clusterName
+  };
+
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    headers: { "api-key": apikey }
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(updateOneEndpoint, options);
+    const triggers = ScriptApp.getProjectTriggers();
+    for (const trigger of triggers) {
+      if (trigger.getHandlerFunction() == 'fetchAndStoreEmails') {
+        ScriptApp.deleteTrigger(trigger);
+      }
+    }
+    console.log("Trigger deleted successfully");
+  } catch (error) {
+    Logger.log("Error deleting trigger: " + error);
+  }
+
+  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(e));
 }
