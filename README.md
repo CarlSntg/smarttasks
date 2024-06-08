@@ -63,7 +63,7 @@ This project extracts tasks from emails and evaluates their urgency by using mac
 
 ### Frontend
 1. Go to <script.google.com>.
-2. Click <strong>add New Project</strong>.
+2. Click <strong>New Project</strong>.
 3. In the script editor, click <strong>Untitled project</strong>.
 4. Give your project a name and click <strong>Rename</strong>.
 5. Click <strong>Project Settings</strong>.
