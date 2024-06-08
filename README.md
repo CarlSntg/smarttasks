@@ -1,7 +1,7 @@
 # SmartTasks <img src="https://iili.io/JMRW6ua.png"  width = "50"/> 
 AI-integrated Gmail Assistant Add-on: Task Extraction and Classification via Natural Language Processing Techniques and Naive Bayes Algorithm
 
-This project extracts tasks from emails and evaluates their urgency by using Natural Language Processing techniques and the Naive Bayes algorithm. It processes emails, identifies tasks, and categorizes them based on urgency levels. The system uses MongoDB for storing email data and spaCy for natural language processing.
+This project extracts tasks from emails and evaluates their urgency by using Natural Language Processing techniques and the Naive Bayes algorithm. It processes emails, identifies tasks, and categorizes them based on urgency levels. The system uses MongoDB for storing email and task data.
 
 ## Features
 
