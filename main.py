@@ -399,8 +399,8 @@ def main():
 
 
 if __name__ == "__main__":
-    # schedule.every().day.at("01:00").do(list_collections_for_email)
-    schedule.every().day.at("16:00").do(reprocess_task_urgencies)
+    schedule.every().day.at("09:00").do(list_collections_for_email)
+    schedule.every().day.at("00:00").do(reprocess_task_urgencies)
 
     threading.Thread(target=main).start()
 
