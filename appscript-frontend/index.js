@@ -49,6 +49,8 @@ const iconNotUrgent = CardService.newIconImage()
 function onGmailMessage(e) {
   console.log(e);
 
+  //fetchAndStoreEmails(e);
+
   return fetchAndDisplayTasks(e);
 }
 
@@ -59,10 +61,10 @@ function fetchAndStoreEmails(e) {
   
   // let timeZone = e.commonEventObject.timeZone.id;
   let timeZone = Session.getScriptTimeZone();
-  const daysInMs = 86400000 * 14;
+  const fourteenDaysInMs = 86400000 * 14;
   const now = new Date();
-  const daysAgo = new Date(now.getTime() - daysInMs);
-  const dateQuery = Utilities.formatDate(daysAgo, timeZone, "yyyy/MM/dd");
+  const fourteenDaysAgo = new Date(now.getTime() - fourteenDaysInMs);
+  const dateQuery = Utilities.formatDate(fourteenDaysAgo, timeZone, "yyyy/MM/dd");
 
   var threads = GmailApp.search("in:inbox category:primary after:" + dateQuery, 0, 50); // Get 50 most recent threads within 14 days from current time
 
@@ -70,35 +72,61 @@ function fetchAndStoreEmails(e) {
     const messages = thread.getMessages();
     const mostRecentMessage = messages[messages.length - 1]; // Get the last message in the thread
 
-    if (mostRecentMessage.getFrom() !== excludedEmail) { 
-      const emailData = {
-        subject: mostRecentMessage.getSubject(),
-        sender: mostRecentMessage.getFrom(),
-        body: mostRecentMessage.getPlainBody(),
-        createdat: mostRecentMessage.getDate(),
-        emailId: mostRecentMessage.getId(),
-        processed: false
-      };
-
-      const payload = {
-        document: emailData,
+    if (mostRecentMessage.getFrom() !== excludedEmail) {
+      const emailId = mostRecentMessage.getId();
+      const checkPayload = {
+        filter: { emailId: emailId },
         collection: collectionName,
         database: databaseName,
         dataSource: clusterName
       };
 
-      const options = {
+      const checkOptions = {
         method: 'post',
         contentType: 'application/json',
-        payload: JSON.stringify(payload),
+        payload: JSON.stringify(checkPayload),
         headers: { "api-key": apikey }
       };
 
       try {
-        const response = UrlFetchApp.fetch(insertOneEndpoint, options);
-        console.log("Email stored successfully");
+        const checkResponse = UrlFetchApp.fetch(findEndpoint, checkOptions);
+        const checkResult = JSON.parse(checkResponse.getContentText());
+
+        if (!checkResult.document) {
+          const emailData = {
+            subject: mostRecentMessage.getSubject(),
+            sender: mostRecentMessage.getFrom(),
+            body: mostRecentMessage.getPlainBody(),
+            createdat: mostRecentMessage.getDate(),
+            emailId: emailId,
+            processed: false
+          };
+
+          const payload = {
+            document: emailData,
+            collection: collectionName,
+            database: databaseName,
+            dataSource: clusterName
+          };
+
+          const options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify(payload),
+            headers: { "api-key": apikey }
+          };
+
+          try {
+            const response = UrlFetchApp.fetch(insertOneEndpoint, options);
+            console.log("Email stored successfully");
+          } catch (error) {
+            Logger.log("Error inserting email: " + error);
+          }
+        } else {
+          console.log("Email already exists, skipping insertion");
+        }
       } catch (error) {
-        Logger.log("Error inserting email: " + error);
+        Logger.log("Error checking email existence: " + error);
       }
     }
   });
@@ -820,10 +848,15 @@ function editTaskCard(e) {
   let cardFooter = CardService.newFixedFooter()
       .setPrimaryButton(submitButton);
 
+  // Calculate today's date at 12 am
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const defaultDeadline = today.getTime();
+
   // Handle null or undefined values with default values
   const taskValue = document.task || '';
   const taskBodyValue = document.taskbody || '';
-  const deadlineValue = document.deadline ? Date.parse(document.deadline) : Date.now();
+  const deadlineValue = document.deadline ? Date.parse(document.deadline) : defaultDeadline;
   const urgencyValue = document.urgency || 'Not Urgent';
 
   const inputForm = CardService.newTextInput()
@@ -876,7 +909,6 @@ function editTaskCard(e) {
 }
 
 
-
 function editTask(e) {
   const event = JSON.parse(e.parameters.event);
   const taskId = e.parameters.emailId;
@@ -885,18 +917,27 @@ function editTask(e) {
 
   const task = e.formInput.task;
   const taskbody = e.formInput.taskbody;
-  const deadline = new Date(e.formInput.deadline.msSinceEpoch).toISOString();
+  const deadline = new Date(e.formInput.deadline.msSinceEpoch)
   const urgency = e.formInput.urgency;
 
   const taskData = {
     task,
     taskbody,
-    deadline,
     urgency,
     completed: false,
     hastask: true,
     processed: true
   };
+
+  // Check if the deadline is the default value
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const defaultDeadline = today.getTime();
+
+  // Only add the deadline if it is not the default value
+  if (deadline.getTime() !== defaultDeadline) {
+    taskData.deadline = deadline.toISOString();
+  }
 
   const updatePayload = {
       "filter": { emailId: taskId },
@@ -904,7 +945,7 @@ function editTask(e) {
       "collection": collectionName,
       "database": databaseName,
       "dataSource": clusterName
-      };
+  };
 
   const updateOptions = {
     method: 'post',
@@ -915,14 +956,43 @@ function editTask(e) {
 
   try {
     UrlFetchApp.fetch(updateOneEndpoint, updateOptions);
-    console.log("Task inserted into database with associated email");
+    console.log("Task updated in database with associated email");
   } catch (error) {
     console.error("Error updating task: ", error);
   }
 
-  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event));
-}
+  // Fetch the updated task details from the database
+  const fetchPayload = {
+    filter: { emailId: taskId },
+    collection: collectionName,
+    database: databaseName,
+    dataSource: clusterName
+  };
 
+  const fetchOptions = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(fetchPayload),
+    headers: { "api-key": apikey }
+  };
+
+  let updatedDocument;
+  try {
+    const response = UrlFetchApp.fetch(findEndpoint, fetchOptions);
+    const documents = JSON.parse(response.getContentText()).documents;
+    if (documents.length > 0) {
+      updatedDocument = documents[0];
+    } else {
+      console.error("No document found with the provided emailId");
+      return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event));
+    }
+  } catch (error) {
+    console.error("Error fetching updated task:", error);
+    return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event));
+  }
+
+  return CardService.newNavigation().updateCard(buildDetailsCard({ parameters: { document: JSON.stringify(updatedDocument), event: JSON.stringify(event) } }));
+}
 
 
 function deleteTaskCard(e) {
