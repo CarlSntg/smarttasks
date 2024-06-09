@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 # Suppress specific BeautifulSoup warning
 warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
 
-# Setup logging
+# Setup logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load environment variables from .env file
@@ -34,32 +34,51 @@ load_dotenv()
 # MongoDB connection details
 MONGO_URI = os.getenv('MONGO_URI')
 DATABASE_NAME = os.getenv('DB_NAME')
-BATCH_SIZE = 20
-CHECK_INTERVAL = 5  # 5 seconds
+BATCH_SIZE = 20  # Number of documents to process in each batch
+CHECK_INTERVAL = 5  # Interval (in seconds) for checking new documents
 
+# Connect to MongoDB
 client = MongoClient(MONGO_URI)
 db = client[DATABASE_NAME]
 
+# Email configuration for sending notifications
 EMAIL_ADDRESS = os.getenv('EMAIL_ADDRESS')
 EMAIL_PASSKEY = os.getenv('EMAIL_PASSKEY')
 
-# Load the models
+# Load pre-trained machine learning models and vectorizers
 script_dir = os.path.dirname(os.path.abspath(__file__))
 model_task = joblib.load(os.path.join(script_dir, 'models/model_task.pkl'))
 vectorizer_task = joblib.load(os.path.join(script_dir, 'models/vectorizer_task.pkl'))
 model_urgency = joblib.load(os.path.join(script_dir, 'models/model_urgency.pkl'))
 vectorizer_urgency = joblib.load(os.path.join(script_dir, 'models/vectorizer_urgency.pkl'))
 
+# Load SpaCy NLP model
 nlp = spacy.load("en_core_web_trf")
 
-
 def preprocess_email_body(text):
+    """
+    Clean and extract text from HTML email content.
+
+    Parameters:
+    text (str): HTML content of the email.
+
+    Returns:
+    str: Cleaned and plain text extracted from the HTML.
+    """
     soup = BeautifulSoup(text, "html.parser")
     cleaned_text = soup.get_text().replace('\n', ' ')
     return cleaned_text
 
-
 def extract_dates_from_text(text):
+    """
+    Extract dates mentioned in the email text using named entity recognition.
+
+    Parameters:
+    text (str): Combined text of the email subject and body.
+
+    Returns:
+    list: List of datetime objects extracted from the text.
+    """
     doc = nlp(text)
     dates = []
     for ent in doc.ents:
@@ -71,8 +90,16 @@ def extract_dates_from_text(text):
                 pass
     return dates
 
-
 def add_urgency_indicators(text):
+    """
+    Add features indicating the presence of urgency-related phrases in the email text.
+
+    Parameters:
+    text (str): Preprocessed email text.
+
+    Returns:
+    dict: Dictionary of urgency features.
+    """
     urgency_phrases = [
         'asap', 'as soon as possible', 'urgent', 'immediate', 'right away', 'by eod',
         'by end of day', 'by end of the week', 'by tomorrow', 'next week', 'in 1 day', 'in 2 days',
@@ -83,8 +110,16 @@ def add_urgency_indicators(text):
         features[f'contains_{phrase}'] = int(phrase in text.lower())
     return features
 
-
 def format_task_deadline(deadline):
+    """
+    Format deadlines into a readable string format.
+
+    Parameters:
+    deadline (str or datetime): Deadline of the task.
+
+    Returns:
+    str: Formatted deadline string.
+    """
     if deadline:
         if isinstance(deadline, str):
             try:
@@ -94,13 +129,26 @@ def format_task_deadline(deadline):
         return deadline.strftime('%B %d, %Y')
     return 'No deadline specified'
 
-
 def validate_email_address(email):
+    """
+    Validate email addresses using a regular expression.
+
+    Parameters:
+    email (str): Email address to validate.
+
+    Returns:
+    bool: True if the email address is valid, False otherwise.
+    """
     pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     return bool(re.match(pattern, email))
 
-
 def ensure_unique_index_on_email_id(collection):
+    """
+    Ensure a unique index on the emailId field in MongoDB collections.
+
+    Parameters:
+    collection (MongoDB Collection): MongoDB collection to create the index on.
+    """
     indexes = collection.index_information()
     if "emailId_1" not in indexes:
         try:
@@ -109,8 +157,14 @@ def ensure_unique_index_on_email_id(collection):
         except DuplicateKeyError as e:
             logging.warning(f"Duplicate key error while creating index on emailId for collection {collection.name}: {e}")
 
-
 def send_urgent_tasks_email(urgent_tasks, user_email):
+    """
+    Send an email listing urgent tasks to a specified email address.
+
+    Parameters:
+    urgent_tasks (list): List of urgent tasks.
+    user_email (str): Email address to send the notification to.
+    """
     if not validate_email_address(user_email):
         logging.warning(f"Skipping invalid email address: {user_email}")
         return
@@ -160,17 +214,31 @@ def send_urgent_tasks_email(urgent_tasks, user_email):
     except smtplib.SMTPException as e:
         logging.error(f"Error sending email to {user_email}: {e}")
 
-
 def evaluate_email_task_and_urgency(sender, subject, body, email_date):
+    """
+    Evaluate if an email contains a task and its urgency level using NLP and pre-trained models.
+
+    Parameters:
+    sender (str): Sender of the email.
+    subject (str): Subject of the email.
+    body (str): Body of the email.
+    email_date (datetime): Date the email was received.
+
+    Returns:
+    dict: Dictionary containing task status, urgency level, and deadline.
+    """
+    # Preprocess email body to clean HTML content
     body = preprocess_email_body(body)
     combined_text = subject + '\n' + body
     doc = nlp(combined_text)
     preprocessed_text = ' '.join([token.lemma_ for token in doc if not token.is_stop])
 
+    # Vectorize the preprocessed text for task classification
     combined_text_task_vectorized = vectorizer_task.transform([preprocessed_text])
     task_keywords = ['assignment', 'task', 'deadline', 'as soon as possible', 'ASAP']
     task = 0
 
+    # Check for task keywords in the text
     if any(keyword in combined_text.lower() for keyword in task_keywords):
         task = 1
     else:
@@ -182,12 +250,14 @@ def evaluate_email_task_and_urgency(sender, subject, body, email_date):
     deadline_str = None
 
     if task == 1:
+        # Vectorize the preprocessed text for urgency classification
         combined_text_urgency_vectorized = vectorizer_urgency.transform([preprocessed_text])
         urgency_features = add_urgency_indicators(preprocessed_text)
         urgency_features_matrix = np.array([list(urgency_features.values())])
         combined_text_urgency_vectorized = hstack([combined_text_urgency_vectorized, urgency_features_matrix])
         urgency_prediction = model_urgency.predict(combined_text_urgency_vectorized)
 
+        # Extract dates from the text to determine deadlines
         deadlines = extract_dates_from_text(combined_text)
         deadline_urgency = 1
 
@@ -203,6 +273,7 @@ def evaluate_email_task_and_urgency(sender, subject, body, email_date):
             else:
                 deadline_urgency = 1
 
+        # Determine the final urgency level based on predictions and deadlines
         urgency = max(urgency_prediction[0], deadline_urgency)
 
     urgency_levels = {1: 'Not Urgent', 2: 'Somewhat Urgent', 3: 'Urgent'}
@@ -210,8 +281,14 @@ def evaluate_email_task_and_urgency(sender, subject, body, email_date):
 
     return {"task": task, "urgency": urgency, "deadline": deadline_str, "urgency_level": urgency_level}
 
-
 def process_single_document(doc, collection_name):
+    """
+    Process a single email document to evaluate and update its task and urgency information.
+
+    Parameters:
+    doc (dict): Email document from the database.
+    collection_name (str): Name of the MongoDB collection.
+    """
     logging.info(f"Processing document in collection {collection_name} with _id {doc['_id']}")
     email_date = doc['createdat'] if isinstance(doc['createdat'], datetime) else datetime.fromisoformat(doc['createdat'][:-1])
     result = evaluate_email_task_and_urgency(doc['sender'], doc['subject'], doc['body'], email_date)
@@ -227,8 +304,13 @@ def process_single_document(doc, collection_name):
         }
     }
 
-
 def process_collection_documents(collection):
+    """
+    Process a batch of documents in a collection, updating their task and urgency information.
+
+    Parameters:
+    collection (MongoDB Collection): MongoDB collection to process.
+    """
     docs_to_process = list(collection.find({"processed": False}).limit(BATCH_SIZE))
     ensure_unique_index_on_email_id(collection)
 
@@ -262,8 +344,13 @@ def process_collection_documents(collection):
 
     remove_unprocessed_duplicates(collection)
 
-
 def remove_unprocessed_duplicates(collection):
+    """
+    Remove unprocessed duplicate documents from a collection.
+
+    Parameters:
+    collection (MongoDB Collection): MongoDB collection to clean up.
+    """
     processed_docs = collection.find({"processed": True, "emailId": {"$exists": True}})
     processed_email_ids = {doc['emailId']: doc['_id'] for doc in processed_docs}
 
@@ -280,8 +367,10 @@ def remove_unprocessed_duplicates(collection):
         except Exception as e:
             logging.error(f"Error during delete operations: {e}")
 
-
 def continuously_process_documents():
+    """
+    Continuously process documents in all collections at a regular interval.
+    """
     while True:
         for collection_name in db.list_collection_names():
             collection = db[collection_name]
@@ -289,8 +378,10 @@ def continuously_process_documents():
         logging.info(f"------------------------------------New Check------------------------------------")
         time.sleep(CHECK_INTERVAL)
 
-
 def monitor_changes_in_collections():
+    """
+    Monitor changes in MongoDB collections and process newly inserted or updated documents.
+    """
     pipeline = [
         {"$match": {"operationType": {"$in": ["insert", "update", "create"]}}}
     ]
@@ -310,8 +401,16 @@ def monitor_changes_in_collections():
                             process_single_document(doc, collection.name)
         time.sleep(CHECK_INTERVAL)
 
-
 def fetch_urgent_tasks_for_today(collection_name):
+    """
+    Fetch urgent tasks for today from a specified collection.
+
+    Parameters:
+    collection_name (str): Name of the MongoDB collection.
+
+    Returns:
+    pymongo.cursor.Cursor: Cursor of urgent tasks for today.
+    """
     gmail_collection = db[collection_name]
     urgent_tasks = gmail_collection.find({
         "urgency": "Urgent",
@@ -320,8 +419,10 @@ def fetch_urgent_tasks_for_today(collection_name):
     })
     return urgent_tasks
 
-
 def list_collections_for_email():
+    """
+    List collections and send emails with urgent tasks.
+    """
     for collection_name in db.list_collection_names():
         if not validate_email_address(collection_name):
             logging.warning(f"Skipping invalid collection name (not an email): {collection_name}")
@@ -336,8 +437,10 @@ def list_collections_for_email():
 
         send_urgent_tasks_email(urgent_tasks_list, collection_name)
 
-
 def reprocess_task_urgencies():
+    """
+    Re-evaluate and update the urgency levels of tasks based on their deadlines.
+    """
     for collection_name in db.list_collection_names():
         if not validate_email_address(collection_name):
             logging.warning(f"Skipping invalid collection name (not an email): {collection_name}")
@@ -383,8 +486,10 @@ def reprocess_task_urgencies():
         else:
             logging.info(f"No reprocessed urgencies for collection {collection_name}")
 
-
 def main():
+    """
+    Main function to ensure unique indexes, start processing and monitoring threads, and schedule tasks.
+    """
     for collection_name in db.list_collection_names():
         ensure_unique_index_on_email_id(db[collection_name])
 
@@ -397,13 +502,15 @@ def main():
     processing_thread.join()
     watching_thread.join()
 
-
 if __name__ == "__main__":
+    # Schedule daily tasks
     schedule.every().day.at("09:00").do(list_collections_for_email)
     schedule.every().day.at("00:00").do(reprocess_task_urgencies)
 
+    # Start the main function in a separate thread
     threading.Thread(target=main).start()
 
+    # Continuously run scheduled tasks
     while True:
         schedule.run_pending()
         time.sleep(1)
