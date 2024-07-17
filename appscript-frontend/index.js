@@ -22,55 +22,57 @@ properties.forEach(property => {
   this[property] = PropertiesService.getScriptProperties().getProperty(property);
 });
 
-
 const collectionName = Session.getActiveUser().getEmail();
 
+/**
+ * Gets the API key from script properties.
+ * @returns {string} The API key.
+ */
 function getAPIKey() {
   return PropertiesService.getScriptProperties().getProperty('API_KEY');
 }
 
 const iconUrgent = CardService.newIconImage()
-    .setIconUrl(
-        'https://iili.io/JQdUnII.png'
-    )
+    .setIconUrl('https://iili.io/JQdUnII.png')
     .setAltText('Urgent');
 const iconSomewhatUrgent = CardService.newIconImage()
-    .setIconUrl(
-        'https://iili.io/JQdSMRp.png'
-    )
+    .setIconUrl('https://iili.io/JQdSMRp.png')
     .setAltText('Somewhat Urgent');
 const iconNotUrgent = CardService.newIconImage()
-    .setIconUrl(
-        'https://iili.io/JQdSHlf.png'
-    )
+    .setIconUrl('https://iili.io/JQdSHlf.png')
     .setAltText('Not Urgent');
 
-
+/**
+ * Event handler for Gmail message.
+ * @param {Object} e - The event object.
+ * @returns {Object} The card to display tasks.
+ */
 function onGmailMessage(e) {
   console.log(e);
 
-  //fetchAndStoreEmails(e);
-
-  return fetchAndDisplayTasks(e);
+  fetchAndStoreEmails(e);
+  return fetchAndDisplayTasks(e, 0, "All"); // Start with the first page and no filter
 }
 
-
+/**
+ * Fetches and stores emails in the database.
+ * @param {Object} e - The event object.
+ */
 function fetchAndStoreEmails(e) {
   const apikey = getAPIKey();
   const excludedEmail = "smarttasks.lmdify@gmail.com";
-  
-  // let timeZone = e.commonEventObject.timeZone.id;
+
   let timeZone = Session.getScriptTimeZone();
   const fourteenDaysInMs = 86400000 * 14;
   const now = new Date();
   const fourteenDaysAgo = new Date(now.getTime() - fourteenDaysInMs);
   const dateQuery = Utilities.formatDate(fourteenDaysAgo, timeZone, "yyyy/MM/dd");
 
-  var threads = GmailApp.search("in:inbox category:primary after:" + dateQuery, 0, 50); // Get 50 most recent threads within 14 days from current time
+  var threads = GmailApp.search("in:inbox category:primary after:" + dateQuery, 0, 50);
 
   threads.forEach(thread => {
     const messages = thread.getMessages();
-    const mostRecentMessage = messages[messages.length - 1]; // Get the last message in the thread
+    const mostRecentMessage = messages[messages.length - 1];
 
     if (mostRecentMessage.getFrom() !== excludedEmail) {
       const emailId = mostRecentMessage.getId();
@@ -132,10 +134,16 @@ function fetchAndStoreEmails(e) {
   });
 }
 
-
-function fetchAndDisplayTasks(e, filter = "All") {
+/**
+ * Fetches and displays tasks.
+ * @param {Object} e - The event object.
+ * @param {number} [page=0] - The page number.
+ * @param {string} [filter="All"] - The filter to apply.
+ * @returns {Object} The card to display tasks.
+ */
+function fetchAndDisplayTasks(e, page = 0, filter = "All") {
   const apikey = getAPIKey();
-
+  const tasksPerPage = 7;
   let query = { hastask: true };
 
   if (filter === "Urgent") {
@@ -157,12 +165,13 @@ function fetchAndDisplayTasks(e, filter = "All") {
   }
 
   const sort = { createdat: -1 };
-  const limit = 10; 
+  const skip = page * tasksPerPage;
 
   const payload = {
     filter: query,
     sort: sort,
-    limit: limit,
+    limit: tasksPerPage,
+    skip: skip,
     collection: collectionName,
     database: databaseName,
     dataSource: clusterName
@@ -178,207 +187,300 @@ function fetchAndDisplayTasks(e, filter = "All") {
   const response = UrlFetchApp.fetch(findEndpoint, options);
   const documents = JSON.parse(response.getContentText()).documents;
 
-  return buildHomeCard(documents, e);
+  return buildHomeCard(documents, e, page, filter, documents.length < tasksPerPage);
 }
 
+/**
+ * Builds the home card with tasks.
+ * @param {Array} documents - The documents to display.
+ * @param {Object} e - The event object.
+ * @param {number} page - The page number.
+ * @param {string} filter - The filter to apply.
+ * @param {boolean} noMoreTasks - Whether there are more tasks to display.
+ * @returns {Object} The home card.
+ */
+function buildHomeCard(documents = [], e, page, filter, noMoreTasks) {
+  const apikey = getAPIKey();
+  let completedTasks = [];
+  let uncompletedTasks = [];
+  let urgency = "";
+  let task = "";
+  let sender = "";
 
+  documents.forEach(document => {
+    if (document.completed) {
+      completedTasks.push(document);
+    } else if (!document.completed) {
+      uncompletedTasks.push(document);
+    }
+  });
 
-function buildHomeCard(documents = [], e) {
-  
-    const apikey = getAPIKey();
-    let completedTasks = [];
-    let uncompletedTasks = [];
-    let urgency = "";
-    let task = "";
-    let sender = "";
-
-    documents.forEach(document => {
-        if (document.completed) {
-        completedTasks.push(document);
-        } else if (!document.completed) {
-        uncompletedTasks.push(document);
-        }
-    });
-
-    const payload = {
+  const payload = {
     filter: { emailId: 'trigger' },
     collection: collectionName,
     database: databaseName,
     dataSource: clusterName
-    };
+  };
 
-    const options = {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      headers: { "api-key": apikey }
-    };
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    headers: { "api-key": apikey }
+  };
 
-    const response = UrlFetchApp.fetch(findEndpoint, options);
-    const triggered = JSON.parse(response.getContentText()).documents[0]?.triggered || false;
+  const response = UrlFetchApp.fetch(findEndpoint, options);
+  const triggered = JSON.parse(response.getContentText()).documents[0]?.triggered || false;
 
-    let notificationSection;
-    if (!triggered) {
-      notificationSection = CardService.newCardSection()
-          .addWidget(CardService.newTextParagraph().setText('Welcome to <b><font color=\"#264653\">SmartTasks!</font></b>\n\nCreating a trigger is essential for the functionalities of this add-on, please click the <b>Run Trigger</b> button down at the bottom to get started.'));
-    }
+  let notificationSection;
+  if (!triggered) {
+    notificationSection = CardService.newCardSection()
+        .addWidget(CardService.newTextParagraph().setText('Welcome to <b><font color=\"#264653\">SmartTasks!</font></b>\n\nCreating a trigger is essential for the functionalities of this add-on, please click the <b>Run Trigger</b> button down at the bottom to get started.'));
+  }
 
-    let triggerButton;
-    if (triggered) {
-      const deleteTriggerButtonAction = CardService.newAction()
-          .setFunctionName('showDeleteTriggerConfirmation')
-          .setParameters({ "event": JSON.stringify(e) });
-
-      triggerButton = CardService.newTextButton()
-          .setText('Delete Trigger')
-          .setOnClickAction(deleteTriggerButtonAction);
-    } else {
-      const createTriggerButtonAction = CardService.newAction()
-          .setFunctionName('showCreateTriggerConfirmation')
-          .setParameters({ "event": JSON.stringify(e) });
-
-      triggerButton = CardService.newTextButton()
-          .setText('Run Trigger')
-          .setOnClickAction(createTriggerButtonAction);
-    }
-
-    let refreshButtonAction = CardService.newAction()
-        .setFunctionName('refreshCard')
+  let triggerButton;
+  if (triggered) {
+    const deleteTriggerButtonAction = CardService.newAction()
+        .setFunctionName('showDeleteTriggerConfirmation')
         .setParameters({ "event": JSON.stringify(e) });
 
-    let refreshButton = CardService.newTextButton()
-        .setText('Refresh')
-        .setOnClickAction(refreshButtonAction);
+    triggerButton = CardService.newTextButton()
+        .setText('Delete Trigger')
+        .setOnClickAction(deleteTriggerButtonAction);
+  } else {
+    const createTriggerButtonAction = CardService.newAction()
+        .setFunctionName('showCreateTriggerConfirmation')
+        .setParameters({ "event": JSON.stringify(e) });
 
-    let refreshFooter = CardService.newFixedFooter()
-        .setPrimaryButton(refreshButton)
-        .setSecondaryButton(triggerButton);
+    triggerButton = CardService.newTextButton()
+        .setText('Run Trigger')
+        .setOnClickAction(createTriggerButtonAction);
+  }
 
-    let cardSection1 = CardService.newCardSection()
-        .setHeader('Task from this Email');
+  let refreshButtonAction = CardService.newAction()
+      .setFunctionName('refreshCard')
+      .setParameters({ "event": JSON.stringify(e), "filter": filter, "page": page.toString() });
 
-    let currentEmailTask = fetchCurrentEmailTask(e);
+  let refreshButton = CardService.newTextButton()
+      .setText('Refresh')
+      .setOnClickAction(refreshButtonAction);
 
-    if (currentEmailTask == null) {
-        cardSection1.addWidget(
-            CardService.newTextParagraph().setText("No task found in this email.")
-          );
+  let refreshFooter = CardService.newFixedFooter()
+      .setPrimaryButton(refreshButton)
+      .setSecondaryButton(triggerButton);
 
-    } else {
-        urgency = currentEmailTask.urgency || "Unknown Urgency";
-        task = currentEmailTask.task || "No Subject";
-        sender = currentEmailTask.sender || "Unknown Sender";
+  let cardSection1 = CardService.newCardSection()
+      .setHeader('Task from this Email');
 
-        let icon = iconNotUrgent;
-        if (urgency == "Urgent") {
-            icon = iconUrgent;
-        } else if (urgency == "Somewhat Urgent") {
-            icon = iconSomewhatUrgent;
-        }
+  let currentEmailTask = fetchCurrentEmailTask(e);
 
-        let taskWidget = CardService.newDecoratedText()
-            .setTopLabel(urgency)
-            .setText(task)
-            .setBottomLabel(sender)
-            .setStartIcon(icon)
-            .setWrapText(true);
+  if (currentEmailTask == null) {
+    cardSection1.addWidget(
+        CardService.newTextParagraph().setText("No task found in this email.")
+      );
+  } else {
+    urgency = currentEmailTask.urgency || "Unknown Urgency";
+    task = currentEmailTask.task || "No Subject";
+    sender = currentEmailTask.sender || "Unknown Sender";
 
-        if(!currentEmailTask.completed){
-          let checkboxSwitchAction = CardService.newAction()
-              .setFunctionName('toggleTaskComplete')
-              .setParameters({ "document": JSON.stringify(currentEmailTask), "event": JSON.stringify(e) });
-
-          let checkboxSwitch = CardService.newSwitch()
-              .setControlType(CardService.SwitchControlType.CHECK_BOX)
-              .setFieldName('toggleComplete' + currentEmailTask.emailId)
-              .setValue('check')
-              .setOnChangeAction(checkboxSwitchAction)
-              .setSelected(false);
-          taskWidget.setSwitchControl(checkboxSwitch);
-        }
-        
-        let viewDetailsAction = CardService.newAction()
-            .setFunctionName('buildDetailsCard')
-            .setParameters({ "document": JSON.stringify(currentEmailTask), "event": JSON.stringify(e) });
-    
-        let viewDetailsButton = CardService.newTextButton()
-            .setText('View Details')
-            .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
-            .setOnClickAction(viewDetailsAction);
-
-        let viewDetailsButtonList = CardService.newButtonSet()
-            .addButton(viewDetailsButton);
-
-        cardSection1.addWidget(taskWidget).addWidget(viewDetailsButtonList);
+    let icon = iconNotUrgent;
+    if (urgency == "Urgent") {
+        icon = iconUrgent;
+    } else if (urgency == "Somewhat Urgent") {
+        icon = iconSomewhatUrgent;
     }
 
-    let buttonListAddTaskAction = CardService.newAction()
-        .setFunctionName('addTaskCard')
-        .setParameters({ "event": JSON.stringify(e) });
+    let taskWidget = CardService.newDecoratedText()
+        .setTopLabel(urgency)
+        .setText(task)
+        .setBottomLabel(sender)
+        .setStartIcon(icon)
+        .setWrapText(true);
 
-    let buttonListAddTask = CardService.newImageButton()
-        .setIconUrl('https://iili.io/JQJXDzv.png')
-        .setAltText('Add Task')
-        .setOnClickAction(buttonListAddTaskAction);
+    if(!currentEmailTask.completed){
+      let checkboxSwitchAction = CardService.newAction()
+          .setFunctionName('toggleTaskComplete')
+          .setParameters({ "document": JSON.stringify(currentEmailTask), "event": JSON.stringify(e) });
 
-    let buttonListFilterUrgentAction = CardService.newAction()
-        .setFunctionName('filterByUrgency')
-        .setParameters({ "filter": "Urgent", "event": JSON.stringify(e) });
+      let checkboxSwitch = CardService.newSwitch()
+          .setControlType(CardService.SwitchControlType.CHECK_BOX)
+          .setFieldName('toggleComplete' + currentEmailTask.emailId)
+          .setValue('check')
+          .setOnChangeAction(checkboxSwitchAction)
+          .setSelected(false);
+      taskWidget.setSwitchControl(checkboxSwitch);
+    }
 
-    let buttonListFilterUrgent = CardService.newImageButton()
-        .setIconUrl('https://iili.io/JQdUnII.png')
-        .setAltText('Filter Urgent')
-        .setOnClickAction(buttonListFilterUrgentAction);
+    let viewDetailsAction = CardService.newAction()
+        .setFunctionName('buildDetailsCard')
+        .setParameters({ "document": JSON.stringify(currentEmailTask), "event": JSON.stringify(e) });
 
-    let buttonListFilterSomewhatUrgentAction = CardService.newAction()
-        .setFunctionName('filterByUrgency')
-        .setParameters({ "filter": "Somewhat Urgent", "event": JSON.stringify(e) });
+    let viewDetailsButton = CardService.newTextButton()
+        .setText('View Details')
+        .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+        .setOnClickAction(viewDetailsAction);
 
-    let buttonListFilterSomewhatUrgent = CardService.newImageButton()
-        .setIconUrl('https://iili.io/JQdSMRp.png')
-        .setAltText('Filter Somewhat Urgent')
-        .setOnClickAction(buttonListFilterSomewhatUrgentAction);
+    let viewDetailsButtonList = CardService.newButtonSet()
+        .addButton(viewDetailsButton);
 
-    let buttonListFilterNotUrgentAction = CardService.newAction()
-        .setFunctionName('filterByUrgency')
-        .setParameters({ "filter": "Not Urgent", "event": JSON.stringify(e) });
+    cardSection1.addWidget(taskWidget).addWidget(viewDetailsButtonList);
+  }
 
-    let buttonListFilterNotUrgent = CardService.newImageButton()
-        .setIconUrl('https://iili.io/JQdSHlf.png')
-        .setAltText('Filter Not Urgent')
-        .setOnClickAction(buttonListFilterNotUrgentAction);
+  let buttonListAddTaskAction = CardService.newAction()
+      .setFunctionName('addTaskCard')
+      .setParameters({ "event": JSON.stringify(e) });
 
-    let buttonListClearFilterAction = CardService.newAction()
-        .setFunctionName('clearFilter')
-        .setParameters({ "event": JSON.stringify(e) });
+  let buttonListAddTask = CardService.newImageButton()
+      .setIconUrl('https://iili.io/JQJXDzv.png')
+      .setAltText('Add Task')
+      .setOnClickAction(buttonListAddTaskAction);
 
-    let buttonListClearFilter = CardService.newImageButton()
-        .setIconUrl('https://iili.io/JQJhyjj.png')
-        .setAltText('Clear Filter')
-        .setOnClickAction(buttonListClearFilterAction);
+  let buttonListFilterUrgentAction = CardService.newAction()
+      .setFunctionName('filterByUrgency')
+      .setParameters({ "filter": "Urgent", "event": JSON.stringify(e), "page": "0" });
 
-    let buttonList = CardService.newButtonSet()
-        .addButton(buttonListAddTask)
-        .addButton(buttonListFilterUrgent)
-        .addButton(buttonListFilterSomewhatUrgent)
-        .addButton(buttonListFilterNotUrgent)
-        .addButton(buttonListClearFilter);
+  let buttonListFilterUrgent = CardService.newImageButton()
+      .setIconUrl('https://iili.io/JQdUnII.png')
+      .setAltText('Filter Urgent')
+      .setOnClickAction(buttonListFilterUrgentAction);
 
-    let buttonListSection = CardService.newCardSection()
-        .addWidget(buttonList);
+  let buttonListFilterSomewhatUrgentAction = CardService.newAction()
+      .setFunctionName('filterByUrgency')
+      .setParameters({ "filter": "Somewhat Urgent", "event": JSON.stringify(e), "page": "0" });
 
-    let cardSection3 = CardService.newCardSection()
-        .setHeader('Tasks from other Emails');
+  let buttonListFilterSomewhatUrgent = CardService.newImageButton()
+      .setIconUrl('https://iili.io/JQdSMRp.png')
+      .setAltText('Filter Somewhat Urgent')
+      .setOnClickAction(buttonListFilterSomewhatUrgentAction);
 
-    if (uncompletedTasks.length === 0) {
-      cardSection3.addWidget(
-        CardService.newTextParagraph().setText("No tasks found in other emails.")
+  let buttonListFilterNotUrgentAction = CardService.newAction()
+      .setFunctionName('filterByUrgency')
+      .setParameters({ "filter": "Not Urgent", "event": JSON.stringify(e), "page": "0" });
+
+  let buttonListFilterNotUrgent = CardService.newImageButton()
+      .setIconUrl('https://iili.io/JQdSHlf.png')
+      .setAltText('Filter Not Urgent')
+      .setOnClickAction(buttonListFilterNotUrgentAction);
+
+  let buttonListClearFilterAction = CardService.newAction()
+      .setFunctionName('clearFilter')
+      .setParameters({ "event": JSON.stringify(e), "page": "0" });
+
+  let buttonListClearFilter = CardService.newImageButton()
+      .setIconUrl('https://iili.io/JQJhyjj.png')
+      .setAltText('Clear Filter')
+      .setOnClickAction(buttonListClearFilterAction);
+
+  let buttonList = CardService.newButtonSet()
+      .addButton(buttonListAddTask)
+      .addButton(buttonListFilterUrgent)
+      .addButton(buttonListFilterSomewhatUrgent)
+      .addButton(buttonListFilterNotUrgent)
+      .addButton(buttonListClearFilter);
+
+  let buttonListSection = CardService.newCardSection()
+      .addWidget(buttonList);
+
+  let cardSection3 = CardService.newCardSection()
+      .setHeader('Tasks from other Emails');
+
+  if (uncompletedTasks.length === 0) {
+    cardSection3.addWidget(
+      CardService.newTextParagraph().setText("No tasks found in other emails.\n\nIf you have recently added or expect tasks, please give it a minute and refresh the page.")
+    );
+  } else { 
+    uncompletedTasks.forEach(uncompletedTask => {
+      urgency = uncompletedTask.urgency || "Unknown Urgency";
+      task = uncompletedTask.task || "No Subject";
+      sender = uncompletedTask.sender || "Unknown Sender";
+
+      let icon = iconNotUrgent;
+      if (urgency == "Urgent") {
+        icon = iconUrgent;
+      } else if (urgency == "Somewhat Urgent") {
+        icon = iconSomewhatUrgent;
+      }
+
+      let checkboxSwitchAction = CardService.newAction()
+        .setFunctionName('toggleTaskComplete')
+        .setParameters({ "document": JSON.stringify(uncompletedTask), "event": JSON.stringify(e) });
+
+      let checkboxSwitch = CardService.newSwitch()
+        .setControlType(CardService.SwitchControlType.CHECK_BOX)
+        .setFieldName('toggleComplete' + uncompletedTask.emailId)
+        .setValue('check')
+        .setOnChangeAction(checkboxSwitchAction)
+        .setSelected(false);
+
+      let taskWidget = CardService.newDecoratedText()
+        .setTopLabel(urgency)
+        .setText(task)
+        .setBottomLabel(sender)
+        .setStartIcon(icon)
+        .setWrapText(true)
+        .setSwitchControl(checkboxSwitch);
+
+      let viewDetailsAction = CardService.newAction()
+        .setFunctionName('buildDetailsCard')
+        .setParameters({ "document": JSON.stringify(uncompletedTask), "event": JSON.stringify(e) });
+
+      let viewDetailsButton = CardService.newTextButton()
+          .setText('View Details')
+          .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+          .setOnClickAction(viewDetailsAction);
+
+      let viewDetailsButtonList = CardService.newButtonSet()
+          .addButton(viewDetailsButton);
+
+      cardSection3.addWidget(taskWidget).addWidget(viewDetailsButtonList);
+    });
+  }
+
+  let pageButtonSet = CardService.newButtonSet();
+
+  // Previous Page Button
+  if (page > 0) {
+    let prevPageButtonAction = CardService.newAction()
+        .setFunctionName('fetchPrevPage')
+        .setParameters({ "page": (page - 1).toString(), "event": JSON.stringify(e), "filter": filter });
+
+    let prevPageButton = CardService.newImageButton()
+        .setIconUrl('https://iili.io/dH9djWJ.png')
+        .setAltText('Previous Page')
+        .setOnClickAction(prevPageButtonAction);
+
+    pageButtonSet.addButton(prevPageButton);
+  }
+
+  // Next Page Button
+  if (!noMoreTasks) {
+    let nextPageButtonAction = CardService.newAction()
+        .setFunctionName('fetchNextPage')
+        .setParameters({ "page": (page + 1).toString(), "event": JSON.stringify(e), "filter": filter });
+
+    let nextPageButton = CardService.newImageButton()
+        .setIconUrl('https://iili.io/dH9dUOX.png')
+        .setAltText('Next Page')
+        .setOnClickAction(nextPageButtonAction);
+
+    pageButtonSet.addButton(nextPageButton);
+  }
+
+  cardSection3.addWidget(pageButtonSet);
+
+  let cardSection4 = CardService.newCardSection()
+      .setHeader('Completed Tasks')
+      .setCollapsible(true);
+
+  if (completedTasks.length === 0) {
+      cardSection4.addWidget(
+        CardService.newTextParagraph().setText("No completed tasks.")
       );
     } else { 
-      uncompletedTasks.forEach(uncompletedTask => {
-        urgency = uncompletedTask.urgency || "Unknown Urgency";
-        task = uncompletedTask.task || "No Subject";
-        sender = uncompletedTask.sender || "Unknown Sender";
+        completedTasks.forEach(completedTask => {
+        urgency = completedTask.urgency || "Unknown Urgency";
+        task = completedTask.task || "No Subject";
+        sender = completedTask.sender || "Unknown Sender";
 
         let icon = iconNotUrgent;
         if (urgency == "Urgent") {
@@ -387,224 +489,196 @@ function buildHomeCard(documents = [], e) {
           icon = iconSomewhatUrgent;
         }
 
-        let checkboxSwitchAction = CardService.newAction()
-          .setFunctionName('toggleTaskComplete')
-          .setParameters({ "document": JSON.stringify(uncompletedTask), "event": JSON.stringify(e) });
-
-        let checkboxSwitch = CardService.newSwitch()
-          .setControlType(CardService.SwitchControlType.CHECK_BOX)
-          .setFieldName('toggleComplete' + uncompletedTask.emailId)
-          .setValue('check')
-          .setOnChangeAction(checkboxSwitchAction)
-          .setSelected(false);
-
         let taskWidget = CardService.newDecoratedText()
           .setTopLabel(urgency)
           .setText(task)
           .setBottomLabel(sender)
           .setStartIcon(icon)
-          .setWrapText(true)
-          .setSwitchControl(checkboxSwitch);
+          .setWrapText(true);
 
         let viewDetailsAction = CardService.newAction()
           .setFunctionName('buildDetailsCard')
-          .setParameters({ "document": JSON.stringify(uncompletedTask), "event": JSON.stringify(e) });
-    
+          .setParameters({ "document": JSON.stringify(completedTask), "event": JSON.stringify(e) });
+
         let viewDetailsButton = CardService.newTextButton()
             .setText('View Details')
-            .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+            .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
             .setOnClickAction(viewDetailsAction);
 
         let viewDetailsButtonList = CardService.newButtonSet()
             .addButton(viewDetailsButton);
 
-        cardSection3.addWidget(taskWidget).addWidget(viewDetailsButtonList);
+        cardSection4.addWidget(taskWidget).addWidget(viewDetailsButtonList);
       });
     }
 
-    let cardSection4 = CardService.newCardSection()
-        .setHeader('Completed Tasks')
-        .setCollapsible(true);
+  let card;
+  if (notificationSection) {
+    card = CardService.newCardBuilder()
+      .setName('homeCard')
+      .setFixedFooter(refreshFooter)
+      .addSection(notificationSection)
+      .addSection(cardSection1)
+      .addSection(buttonListSection)
+      .addSection(cardSection3)
+      .addSection(cardSection4)
+      .build();
+  } else {
+    card = CardService.newCardBuilder()
+      .setName('homeCard')
+      .setFixedFooter(refreshFooter)
+      .addSection(cardSection1)
+      .addSection(buttonListSection)
+      .addSection(cardSection3)
+      .addSection(cardSection4)
+      .build();
+  }
 
-    if (completedTasks.length === 0) {
-        cardSection4.addWidget(
-          CardService.newTextParagraph().setText("No completed tasks.")
-        );
-      } else { 
-          completedTasks.forEach(completedTask => {
-          urgency = completedTask.urgency || "Unknown Urgency";
-          task = completedTask.task || "No Subject";
-          sender = completedTask.sender || "Unknown Sender";
-  
-          let icon = iconNotUrgent;
-          if (urgency == "Urgent") {
-            icon = iconUrgent;
-          } else if (urgency == "Somewhat Urgent") {
-            icon = iconSomewhatUrgent;
-          }
-  
-          let taskWidget = CardService.newDecoratedText()
-            .setTopLabel(urgency)
-            .setText(task)
-            .setBottomLabel(sender)
-            .setStartIcon(icon)
-            .setWrapText(true);
-
-          let viewDetailsAction = CardService.newAction()
-            .setFunctionName('buildDetailsCard')
-            .setParameters({ "document": JSON.stringify(completedTask), "event": JSON.stringify(e) });
-    
-          let viewDetailsButton = CardService.newTextButton()
-              .setText('View Details')
-              .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
-              .setOnClickAction(viewDetailsAction);
-
-          let viewDetailsButtonList = CardService.newButtonSet()
-              .addButton(viewDetailsButton);
-  
-          cardSection4.addWidget(taskWidget).addWidget(viewDetailsButtonList);
-        });
-      }
-
-    let card;
-    if (notificationSection) {
-      card = CardService.newCardBuilder()
-        .setName('homeCard')
-        .setFixedFooter(refreshFooter)
-        .addSection(notificationSection)
-        .addSection(cardSection1)
-        .addSection(buttonListSection)
-        .addSection(cardSection3)
-        .addSection(cardSection4)
-        .build();
-    } else {
-      card = CardService.newCardBuilder()
-        .setName('homeCard')
-        .setFixedFooter(refreshFooter)
-        .addSection(cardSection1)
-        .addSection(buttonListSection)
-        .addSection(cardSection3)
-        .addSection(cardSection4)
-        .build();
-    }
-
-    return card;
+  return card;
 }
 
+/**
+ * Fetches the next page of tasks.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
+function fetchNextPage(e) {
+  const page = parseInt(e.parameters.page, 10);
+  const filter = e.parameters.filter;
+  const event = JSON.parse(e.parameters.event);
 
+  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event, page, filter));
+}
+
+/**
+ * Fetches the previous page of tasks.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
+function fetchPrevPage(e) {
+  const page = parseInt(e.parameters.page, 10);
+  const filter = e.parameters.filter;
+  const event = JSON.parse(e.parameters.event);
+
+  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event, page, filter));
+}
+
+/**
+ * Builds a card with detailed task information.
+ * @param {Object} e - The event object.
+ * @returns {Object} The detailed task card.
+ */
 function buildDetailsCard(e) {
+  const document = JSON.parse(e.parameters.document);
+  const event = JSON.parse(e.parameters.event);
 
-    const document = JSON.parse(e.parameters.document);
-    const event = JSON.parse(e.parameters.event);
+  const formattedDeadline = document.deadline ? formatDate(document.deadline) : "";
 
-    const formattedDeadline = document.deadline ? formatDate(document.deadline) : "";
+  let completedButtonText = "Mark completed";
+  if(document.completed){
+    completedButtonText = "Uncompleted";
+  }
 
-    let completedButtonText = "Mark completed";
-    if(document.completed){
-        completedButtonText = "Mark uncompleted";
-    }
+  const taskBodyText = document.taskbody || ""; 
 
-    const taskBodyText = document.taskbody || ""; 
+  let toggleCompleteButtonAction = CardService.newAction()
+      .setFunctionName("toggleTaskComplete")
+      .setParameters({ "document": JSON.stringify(document), "event": JSON.stringify(event) });
 
-    let toggleCompleteButtonAction = CardService.newAction()
-        .setFunctionName("toggleTaskComplete")
-        .setParameters({ "document": JSON.stringify(document), "event": JSON.stringify(event) });
+  let toggleCompleteButton = CardService.newTextButton()
+      .setText(completedButtonText)
+      .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+      .setBackgroundColor("#264653")
+      .setOnClickAction(toggleCompleteButtonAction);
 
-    let toggleCompleteButton = CardService.newTextButton()
-        .setText(completedButtonText)
-        .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-        .setBackgroundColor("#264653")
-        .setOnClickAction(toggleCompleteButtonAction);
+  let deleteButtonAction = CardService.newAction()
+      .setFunctionName('deleteTaskCard')
+      .setParameters({ "emailId": document.emailId, "event": JSON.stringify(event) });
 
-    let deleteButtonAction = CardService.newAction()
-        .setFunctionName('deleteTaskCard')
-        .setParameters({ "emailId": document.emailId, "event": JSON.stringify(event) });
+  let deleteButton = CardService.newTextButton()
+      .setText('Delete')
+      .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+      .setBackgroundColor("#CE4257")
+      .setOnClickAction(deleteButtonAction);
 
-    let deleteButton = CardService.newTextButton()
-        .setText('Delete')
-        .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-        .setBackgroundColor("#CE4257")
-        .setOnClickAction(deleteButtonAction);
+  let cardFooter = CardService.newFixedFooter()
+      .setPrimaryButton(toggleCompleteButton)
+      .setSecondaryButton(deleteButton);
 
-    let cardFooter = CardService.newFixedFooter()
-        .setPrimaryButton(toggleCompleteButton)
-        .setSecondaryButton(deleteButton);
+  let buttonEditTaskAction = CardService.newAction()
+      .setFunctionName('editTaskCard')
+      .setParameters({ "document": JSON.stringify(document), "event": JSON.stringify(event) });
 
-    let buttonEditTaskAction = CardService.newAction()
-        .setFunctionName('editTaskCard')
-        .setParameters({ "document": JSON.stringify(document), "event": JSON.stringify(event) });
+  let buttonEditTask = CardService.newImageButton()
+      .setIconUrl('https://iili.io/JQJ0V3b.png')
+      .setAltText('Edit Task')
+      .setOnClickAction(buttonEditTaskAction);
 
-    let buttonEditTask = CardService.newImageButton()
-        .setIconUrl('https://iili.io/JQJ0V3b.png')
-        .setAltText('Edit Task')
-        .setOnClickAction(buttonEditTaskAction);
+  let icon = iconNotUrgent;
+  if (document.urgency == "Urgent") {
+      icon = iconUrgent;
+  } else if (document.urgency == "Somewhat Urgent") {
+      icon = iconSomewhatUrgent;
+  }
 
-    let icon = iconNotUrgent;
-    if (document.urgency == "Urgent") {
-        icon = iconUrgent;
-    } else if (document.urgency == "Somewhat Urgent") {
-        icon = iconSomewhatUrgent;
-    }
+  let widgetTask = CardService.newDecoratedText()
+      .setTopLabel(document.urgency)
+      .setText(document.task)
+      .setBottomLabel(formattedDeadline)
+      .setStartIcon(icon)
+      .setWrapText(true)
+      .setButton(buttonEditTask);
 
-    let widgetTask = CardService.newDecoratedText()
-        .setTopLabel(document.urgency)
-        .setText(document.task)
-        .setBottomLabel(formattedDeadline)
-        .setStartIcon(icon)
-        .setWrapText(true)
-        .setButton(buttonEditTask);
+  let widgetBodyTask = CardService.newTextParagraph()
+      .setText(taskBodyText);
 
-    // let widgetDeadline = CardService.newTextParagraph()
-    //     .setText('Deadline: ' + formatDate(document.deadline));
+  let cardSection1 = CardService.newCardSection()
+      .setHeader('Task')
+      .addWidget(widgetTask)
+      .addWidget(widgetBodyTask);
 
-    let widgetBodyTask = CardService.newTextParagraph()
-        .setText(taskBodyText);
+  let iconSender = CardService.newIconImage()
+      .setIcon(CardService.Icon.PERSON)
+      .setAltText('Sender');
 
-    let cardSection1 = CardService.newCardSection()
-        .setHeader('Task')
-        .addWidget(widgetTask)
-        //.addWidget(widgetDeadline)
-        .addWidget(widgetBodyTask);
+  let widgetSenderInfo = CardService.newDecoratedText()
+      .setText(document.sender)
+      .setStartIcon(iconSender)
+      .setWrapText(true);
 
-    let iconSender = CardService.newIconImage()
-        .setIcon(CardService.Icon.PERSON)
-        .setAltText('Sender');
+  let iconEmail = CardService.newIconImage()
+      .setIcon(CardService.Icon.EMAIL)
+      .setAltText('Email');
 
-    let widgetSenderInfo = CardService.newDecoratedText()
-        .setText(document.sender)
-        .setStartIcon(iconSender)
-        .setWrapText(true);
+  let widgetDateSubject = CardService.newDecoratedText()
+      .setTopLabel(formatDate(document.createdat))
+      .setText(document.subject)
+      .setStartIcon(iconEmail)
+      .setWrapText(true);
 
-    let iconEmail = CardService.newIconImage()
-        .setIcon(CardService.Icon.EMAIL)
-        .setAltText('Email');
+  let widgetBodyEmail = CardService.newTextParagraph()
+      .setText(document.body);
 
-    let widgetDateSubject = CardService.newDecoratedText()
-        .setTopLabel(formatDate(document.createdat))
-        .setText(document.subject)
-        .setStartIcon(iconEmail)
-        .setWrapText(true);
+  let cardSection2 = CardService.newCardSection()
+      .setHeader('From this Email')
+      .addWidget(widgetSenderInfo)
+      .addWidget(widgetDateSubject)
+      .addWidget(widgetBodyEmail);
 
-    let widgetBodyEmail = CardService.newTextParagraph()
-        .setText(document.body);
+  let card = CardService.newCardBuilder()
+      .setFixedFooter(cardFooter)
+      .addSection(cardSection1)
+      .addSection(cardSection2)
+      .build();
 
-    let cardSection2 = CardService.newCardSection()
-        .setHeader('From this Email')
-        .addWidget(widgetSenderInfo)
-        .addWidget(widgetDateSubject)
-        .addWidget(widgetBodyEmail);
-
-    let card = CardService.newCardBuilder()
-        .setFixedFooter(cardFooter)
-        .addSection(cardSection1)
-        .addSection(cardSection2)
-        .build();
-
-    return card;
-    
+  return card;
 }
 
-
+/**
+ * Toggles the completion status of a task.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
 function toggleTaskComplete(e) {
   const document = JSON.parse(e.parameters.document);
   const event = JSON.parse(e.parameters.event);
@@ -662,8 +736,11 @@ function toggleTaskComplete(e) {
   return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event));
 }
 
-
-
+/**
+ * Builds a card to add a new task.
+ * @param {Object} e - The event object.
+ * @returns {Object} The card to add a new task.
+ */
 function addTaskCard(e) {
   const event = JSON.parse(e.parameters.event);
 
@@ -688,7 +765,6 @@ function addTaskCard(e) {
     .setTitle('Task Description')
     .setHint('Enter a description of the task');
 
-  // Calculate today's date at 12 am
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const defaultDeadline = today.getTime();
@@ -731,7 +807,11 @@ function addTaskCard(e) {
     .build();
 }
 
-
+/**
+ * Adds a new task to the database.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
 function addTask(e) {
   const event = JSON.parse(e.parameters.event);
   
@@ -748,7 +828,6 @@ function addTask(e) {
   const deadline = new Date(e.formInput.deadline.msSinceEpoch);
   const urgency = e.formInput.urgency;
 
-  // Check if the deadline is the default value
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const defaultDeadline = today.getTime();
@@ -762,7 +841,6 @@ function addTask(e) {
     processed: true
   };
 
-  // Only add the deadline if it is not the default value
   if (deadline.getTime() !== defaultDeadline) {
     taskData.deadline = deadline.toISOString();
   }
@@ -784,7 +862,7 @@ function addTask(e) {
   let response = UrlFetchApp.fetch(findEndpoint, checkOptions);
   let result = JSON.parse(response.getContentText());
 
-  if (result.documents && result.documents.length > 0) { // Email found, update the task
+  if (result.documents && result.documents.length > 0) {
     const updatePayload = {
       "filter": { emailId: taskId },
       "update": { "$set": taskData },
@@ -803,7 +881,7 @@ function addTask(e) {
     UrlFetchApp.fetch(updateOneEndpoint, updateOptions);
     console.log("Task updated in database with associated email");
 
-  } else { // Email not found, insert current email and task
+  } else {
     const insertPayload = {
       "dataSource": clusterName,
       "database": databaseName,
@@ -832,7 +910,11 @@ function addTask(e) {
   return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event)); 
 }
 
-
+/**
+ * Builds a card to edit an existing task.
+ * @param {Object} e - The event object.
+ * @returns {Object} The card to edit a task.
+ */
 function editTaskCard(e) {
   const event = JSON.parse(e.parameters.event);
   const document = JSON.parse(e.parameters.document);
@@ -848,12 +930,10 @@ function editTaskCard(e) {
   let cardFooter = CardService.newFixedFooter()
       .setPrimaryButton(submitButton);
 
-  // Calculate today's date at 12 am
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const defaultDeadline = today.getTime();
 
-  // Handle null or undefined values with default values
   const taskValue = document.task || '';
   const taskBodyValue = document.taskbody || '';
   const deadlineValue = document.deadline ? Date.parse(document.deadline) : defaultDeadline;
@@ -875,6 +955,10 @@ function editTaskCard(e) {
     .setFieldName('deadline')
     .setTitle('Deadline')
     .setTimeZoneOffsetInMins(event.commonEventObject.timeZone.offset / 60000);
+
+  // const deadlineForm = CardService.newDatePicker()
+  //   .setTitle("Deadline")
+  //   .setFieldName("deadline");
   
   if (deadlineValue) {
     deadlineForm.setValueInMsSinceEpoch(deadlineValue);
@@ -908,7 +992,11 @@ function editTaskCard(e) {
   return card;
 }
 
-
+/**
+ * Edits an existing task in the database.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
 function editTask(e) {
   const event = JSON.parse(e.parameters.event);
   const taskId = e.parameters.emailId;
@@ -929,12 +1017,10 @@ function editTask(e) {
     processed: true
   };
 
-  // Check if the deadline is the default value
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const defaultDeadline = today.getTime();
 
-  // Only add the deadline if it is not the default value
   if (deadline.getTime() !== defaultDeadline) {
     taskData.deadline = deadline.toISOString();
   }
@@ -961,7 +1047,6 @@ function editTask(e) {
     console.error("Error updating task: ", error);
   }
 
-  // Fetch the updated task details from the database
   const fetchPayload = {
     filter: { emailId: taskId },
     collection: collectionName,
@@ -994,57 +1079,65 @@ function editTask(e) {
   return CardService.newNavigation().updateCard(buildDetailsCard({ parameters: { document: JSON.stringify(updatedDocument), event: JSON.stringify(event) } }));
 }
 
-
+/**
+ * Builds a card to confirm task deletion.
+ * @param {Object} e - The event object.
+ * @returns {Object} The card to confirm task deletion.
+ */
 function deleteTaskCard(e) {
-    const emailId = e.parameters.emailId;
-    const event = JSON.parse(e.parameters.event);
+  const emailId = e.parameters.emailId;
+  const event = JSON.parse(e.parameters.event);
 
-    let deleteButtonAction = CardService.newAction()
-        .setFunctionName('deleteTask')
-        .setParameters({ "emailId": emailId, "event": JSON.stringify(event) });
+  let deleteButtonAction = CardService.newAction()
+      .setFunctionName('deleteTask')
+      .setParameters({ "emailId": emailId, "event": JSON.stringify(event) });
 
-    let deleteButton = CardService.newTextButton()
-        .setText('Delete')
-        .setOnClickAction(deleteButtonAction);
+  let deleteButton = CardService.newTextButton()
+      .setText('Delete')
+      .setOnClickAction(deleteButtonAction);
 
-    let cancelButtonAction = CardService.newAction()
-        .setFunctionName('gotoPreviousCard')
-        .setParameters({});
+  let cancelButtonAction = CardService.newAction()
+      .setFunctionName('gotoPreviousCard')
+      .setParameters({});
 
-    let cancelButton = CardService.newTextButton()
-        .setText('Cancel')
-        .setOnClickAction(cancelButtonAction);
+  let cancelButton = CardService.newTextButton()
+      .setText('Cancel')
+      .setOnClickAction(cancelButtonAction);
 
-    let cardFooter = CardService.newFixedFooter()
-        .setPrimaryButton(deleteButton)
-        .setSecondaryButton(cancelButton);
+  let cardFooter = CardService.newFixedFooter()
+      .setPrimaryButton(deleteButton)
+      .setSecondaryButton(cancelButton);
 
-    let deleteIcon = CardService.newIconImage()
-        .setIconUrl('https://iili.io/JQJXFVV.png')
-        .setAltText('Delete');
+  let deleteIcon = CardService.newIconImage()
+      .setIconUrl('https://iili.io/JQJXFVV.png')
+      .setAltText('Delete');
 
-    let cardSection1DecoratedText1 = CardService.newDecoratedText()
-        .setText('Delete Task')
-        .setStartIcon(deleteIcon);
+  let cardSection1DecoratedText1 = CardService.newDecoratedText()
+      .setText('Delete Task')
+      .setStartIcon(deleteIcon);
 
-    let cardSection1 = CardService.newCardSection()
-        .addWidget(cardSection1DecoratedText1);
+  let cardSection1 = CardService.newCardSection()
+      .addWidget(cardSection1DecoratedText1);
 
-    let askConfirmation = CardService.newTextParagraph()
-        .setText('Are you sure you want to <font color=\"#FF0000\">delete</font> this task?');
+  let askConfirmation = CardService.newTextParagraph()
+      .setText('Are you sure you want to <font color=\"#FF0000\">delete</font> this task?');
 
-    let cardSection2 = CardService.newCardSection()
-        .addWidget(askConfirmation);
+  let cardSection2 = CardService.newCardSection()
+      .addWidget(askConfirmation);
 
-    let card = CardService.newCardBuilder()
-        .setFixedFooter(cardFooter)
-        .addSection(cardSection1)
-        .addSection(cardSection2)
-        .build();
-    return card;
+  let card = CardService.newCardBuilder()
+      .setFixedFooter(cardFooter)
+      .addSection(cardSection1)
+      .addSection(cardSection2)
+      .build();
+  return card;
 }
 
-
+/**
+ * Deletes a task from the database.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
 function deleteTask(e) {
   const taskToUpdate = e.parameters.emailId;
   const event = JSON.parse(e.parameters.event);
@@ -1091,7 +1184,11 @@ function deleteTask(e) {
   return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event));
 }
 
-
+/**
+ * Fetches the current email task.
+ * @param {Object} e - The event object.
+ * @returns {Object|null} The task document or null if not found.
+ */
 function fetchCurrentEmailTask(e) {
   const apikey = getAPIKey();
 
@@ -1104,7 +1201,7 @@ function fetchCurrentEmailTask(e) {
   const query = {
     emailId: currentEmailId,
     hastask: true
-  }; 
+  };
 
   const payload = {
     filter: query,
@@ -1134,8 +1231,11 @@ function fetchCurrentEmailTask(e) {
   } 
 }
 
-
-
+/**
+ * Formats a date string to a readable format.
+ * @param {string} dateString - The date string to format.
+ * @returns {string} The formatted date string.
+ */
 function formatDate(dateString) {
   const date = new Date(dateString);
 
@@ -1148,36 +1248,62 @@ function formatDate(dateString) {
   hours = hours % 12 || 12;
   const minutes = String(date.getMinutes()).padStart(2, '0'); 
 
-  return `${month}-${day}-${year} ${hours}:${minutes} ${ampm}`;
+  // return `${month}-${day}-${year} ${hours}:${minutes} ${ampm}`;
+  return `${month}-${day}-${year}`;
 }
 
+/**
+ * Filters tasks by urgency.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
 function filterByUrgency(e) {
   const filter = e.parameters.filter;
   const event = JSON.parse(e.parameters.event);
 
-  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event, filter));
+  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event, 0, filter));
 }
 
+/**
+ * Clears the task filter.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
 function clearFilter(e) {
   const event = JSON.parse(e.parameters.event);
 
-  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event));
+  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event, 0, "All"));
 }
 
+/**
+ * Refreshes the current card.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
 function refreshCard(e) {
+  const page = parseInt(e.parameters.page, 10);
+  const filter = e.parameters.filter;
   const event = JSON.parse(e.parameters.event);
 
-  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event));
+  return CardService.newNavigation().updateCard(fetchAndDisplayTasks(event, page, filter));
 }
 
+/**
+ * Navigates to the previous card.
+ * @returns {Object} The navigation action response.
+ */
 function gotoPreviousCard() {
-    var nav = CardService.newNavigation().popCard();
-    return CardService.newActionResponseBuilder()
-        .setNavigation(nav)
-        .build();
+  var nav = CardService.newNavigation().popCard();
+  return CardService.newActionResponseBuilder()
+      .setNavigation(nav)
+      .build();
 }
 
-
+/**
+ * Shows a confirmation card for creating a trigger.
+ * @param {Object} e - The event object.
+ * @returns {Object} The confirmation card.
+ */
 function showCreateTriggerConfirmation(e) {
   const event = JSON.parse(e.parameters.event);
 
@@ -1201,33 +1327,38 @@ function showCreateTriggerConfirmation(e) {
       .setSecondaryButton(cancelButton);
 
   let createTriggerIcon = CardService.newIconImage()
-        .setIconUrl('https://iili.io/Jp4NJBn.png')
-        .setAltText('Create Trigger');
+      .setIconUrl('https://iili.io/Jp4NJBn.png')
+      .setAltText('Create Trigger');
 
   let createTrigger = CardService.newDecoratedText()
-        .setText('Create Trigger')
-        .setStartIcon(createTriggerIcon);
+      .setText('Create Trigger')
+      .setStartIcon(createTriggerIcon);
 
   let cardSection1 = CardService.newCardSection()
-        .addWidget(createTrigger);
+      .addWidget(createTrigger);
 
   let askConfirmation = CardService.newTextParagraph()
-        .setText('This will initiate the upload and processing of your emails for task extraction. This is <b>necessary</b> for the functionality of the addon and runs at intervals. Create the trigger?\n\nPlease review our <a href=\"https://docs.google.com/document/d/e/2PACX-1vThgejgFkRr-Gfg-PdAPksWeNRPVhxWinEgd6LqzeEipsp_MB8sQIGy7SYhWZTqWVdyPi-PwBWoJh4O/pub\">Terms of Service</a> and <a href=\"https://docs.google.com/document/d/e/2PACX-1vRkCmVUi7_n5VBV3PDtDQcZPkb-1Tmu04DDGEmME5_xpk5fFWKOeZcEsQbn9yOaGGtIv6Nt-kPT2iEX/pub\">Privacy Policy</a> before proceeding.\n\n<b>Please note:</b>\nRunning this trigger might take up to a minute to finish. You only need to do this once.');
+      .setText('This will initiate the upload and processing of your emails for task extraction. This is <b>necessary</b> for the functionality of the addon and runs at intervals. Create the trigger?\n\nPlease review our <a href=\"https://docs.google.com/document/d/e/2PACX-1vThgejgFkRr-Gfg-PdAPksWeNRPVhxWinEgd6LqzeEipsp_MB8sQIGy7SYhWZTqWVdyPi-PwBWoJh4O/pub\">Terms of Service</a> and <a href=\"https://docs.google.com/document/d/e/2PACX-1vRkCmVUi7_n5VBV3PDtDQcZPkb-1Tmu04DDGEmME5_xpk5fFWKOeZcEsQbn9yOaGGtIv6Nt-kPT2iEX/pub\">Privacy Policy</a> before proceeding.\n\n<b>Please note:</b>\nRunning this trigger might take up to a minute to finish. You only need to do this once.');
 
   let cardSection2 = CardService.newCardSection()
-        .addWidget(askConfirmation);
+      .addWidget(askConfirmation);
 
   let card = CardService.newCardBuilder()
-        .setFixedFooter(cardFooter)
-        .addSection(cardSection1)
-        .addSection(cardSection2)
-        .build();
+      .setFixedFooter(cardFooter)
+      .addSection(cardSection1)
+      .addSection(cardSection2)
+      .build();
 
   return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(card))
       .build();
 }
 
+/**
+ * Shows a confirmation card for deleting a trigger.
+ * @param {Object} e - The event object.
+ * @returns {Object} The confirmation card.
+ */
 function showDeleteTriggerConfirmation(e) {
   const event = JSON.parse(e.parameters.event);
 
@@ -1251,33 +1382,38 @@ function showDeleteTriggerConfirmation(e) {
       .setSecondaryButton(cancelButton);
 
   let deleteTriggerIcon = CardService.newIconImage()
-        .setIconUrl('https://iili.io/Jp4N7pV.png')
-        .setAltText('Delete Trigger');
+      .setIconUrl('https://iili.io/Jp4N7pV.png')
+      .setAltText('Delete Trigger');
 
   let deleteTrigger = CardService.newDecoratedText()
-        .setText('Delete Trigger')
-        .setStartIcon(deleteTriggerIcon);
+      .setText('Delete Trigger')
+      .setStartIcon(deleteTriggerIcon);
 
   let cardSection1 = CardService.newCardSection()
-        .addWidget(deleteTrigger);
+      .addWidget(deleteTrigger);
 
   let askConfirmation = CardService.newTextParagraph()
-        .setText('This will <b><font color=\"#FF0000\">stop</font></b> the upload and processing of your emails for task extraction, which is necesary for the functionality of the addon. Delete the trigger?');
+      .setText('This will <b><font color=\"#FF0000\">stop</font></b> the upload and processing of your emails for task extraction, which is necessary for the functionality of the addon. Delete the trigger?');
 
   let cardSection2 = CardService.newCardSection()
-        .addWidget(askConfirmation);
+      .addWidget(askConfirmation);
 
   let card = CardService.newCardBuilder()
-        .setFixedFooter(cardFooter)
-        .addSection(cardSection1)
-        .addSection(cardSection2)
-        .build();
+      .setFixedFooter(cardFooter)
+      .addSection(cardSection1)
+      .addSection(cardSection2)
+      .build();
 
   return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(card))
       .build();
 }
 
+/**
+ * Creates a trigger for fetching and storing emails.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
 function createTrigger(e) {
   const apikey = getAPIKey();
   const collection = collectionName;
@@ -1293,7 +1429,7 @@ function createTrigger(e) {
         processed: true
       }
     },
-    upsert: true,  // This will create the document if it does not exist
+    upsert: true,
     collection: collection,
     database: databaseName,
     dataSource: clusterName
@@ -1320,6 +1456,11 @@ function createTrigger(e) {
   return CardService.newNavigation().updateCard(fetchAndDisplayTasks(e));
 }
 
+/**
+ * Deletes the trigger for fetching and storing emails.
+ * @param {Object} e - The event object.
+ * @returns {Object} The updated card navigation.
+ */
 function deleteTrigger(e) {
   const apikey = getAPIKey();
   const collection = collectionName;
